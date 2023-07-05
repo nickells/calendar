@@ -1,0 +1,60 @@
+body {
+  margin: 0;
+  font-family: Helvetica;
+  text-transform: uppercase;
+  font-weight: bold;
+  
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+#container {
+  display: flex;
+  flex-direction: row;
+  width: 100vw;
+  height: 100vh;
+}
+
+#header {
+  height: 100vh;
+  font-size: 52pt;
+  margin: 0;
+  padding: 0;
+  writing-mode: vertical-lr;
+  transform: rotate(-180deg);
+}
+
+#day-grid {
+  display: grid;
+  width: 100%;
+  height: 20px;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+#cal-inner {
+  width: 100%;
+}
+
+#cal-grid {
+  display: grid;
+  height: calc(100% - 20px);
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+  gap: 5pt;
+}
+
+.cal-day {
+  font-size: 22pt;
+  background-color: #f0f0f0;
+  color: rgba(0, 0, 0, 0.4);
+  padding: 5pt;
+  padding-top: 2pt;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.cal-day.other-month {
+  background-color: #eee;
+  color: rgba(0, 0, 0, 0.2);
+}
