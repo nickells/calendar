@@ -57,8 +57,6 @@ const render = (date) => {
     calDay.classList.add("cal-day");
     document.getElementById("cal-grid").appendChild(calDay);
 
-    console.log({ daysInMonthLast, firstDay, i });
-
     // prev days
     const day = document.createElement("div");
     if (i < firstDay) {
