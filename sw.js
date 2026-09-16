@@ -1,5 +1,5 @@
-const CACHE = 'calendar-shell-v37';
-const SHELL = ['./', './index.html', './style.css', './fonts/archivo-narrow-regular.ttf', './fonts/archivo-narrow-bold.ttf', './script.js', './calendar.mjs', './storage.mjs', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+const CACHE = 'calendar-shell-v44';
+const SHELL = ['./', './index.html', './style.css', './fonts/archivo-narrow-regular.ttf', './fonts/archivo-narrow-bold.ttf', './script.js', './calendar.mjs', './layout.mjs', './storage.mjs', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 const shellURLs = new Set(SHELL.map(path => new URL(path, self.registration.scope).href));
 const localPreview = ['localhost', '127.0.0.1', '[::1]'].includes(self.location.hostname);
 

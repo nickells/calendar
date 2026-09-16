@@ -86,7 +86,18 @@ export function eventColor(event) {
   return typeof event?.color === 'string' && /^#[0-9a-f]{6}$/i.test(event.color) ? event.color : '#222222';
 }
 
-export function randomDarkColor() {
-  const colors = ['#0000ff', '#003dff', '#6000ff', '#8a00d4', '#b000b5', '#ce0050', '#d00020', '#b84900', '#008000', '#007860', '#007590', '#004eae'];
-  return colors[Math.floor(Math.random() * colors.length)];
+// Linear-light sRGB luminance, on a scale from black (0) to white (1).
+export const MAX_EVENT_COLOR_LUMINANCE = .23;
+export function colorLuminance(color) {
+  const channels = color.slice(1).match(/../g).map(hex => parseInt(hex, 16) / 255);
+  const [r, g, b] = channels.map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4);
+  return .2126 * r + .7152 * g + .0722 * b;
+}
+
+export function randomDarkColor(random = Math.random) {
+  for (let attempt = 0; attempt < 128; attempt++) {
+    const color = '#' + Math.floor(random() * 0x1000000).toString(16).padStart(6, '0');
+    if (colorLuminance(color) <= MAX_EVENT_COLOR_LUMINANCE) return color;
+  }
+  return '#0000ff';
 }

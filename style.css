@@ -132,7 +132,9 @@ h1 {
 .day-events { display: flex; flex-direction: column; gap: 2px; padding: 0 5pt 3pt; }
 .event {
   min-height: 28px;
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  line-height: 1.5;
   width: 100%;
   padding: 2pt 0;
   text-align: left;
@@ -143,8 +145,6 @@ h1 {
   font-size: 10pt;
 }
 .event-span {
-  display: flex;
-  align-items: center;
   gap: 5px;
   height: auto;
   flex-shrink: 0;
@@ -156,6 +156,7 @@ h1 {
 }
 .event-line {
   position: relative;
+  margin-top: calc(.75em - .5px);
   height: 1px;
   flex: 1;
   min-width: 10px;
@@ -172,7 +173,6 @@ h1 {
   stroke: #222;
   stroke-width: 1;
 }
-.event-spacer { display: none; }
 dialog {
   width: min(480px, calc(100% - 20px));
   max-height: 90vh;
@@ -243,7 +243,6 @@ input[type="color"] {
 .day-selection-surface { position: absolute; inset: 0; touch-action: none; }
 .day-heading { position: relative; touch-action: none; }
 .day-events { position: relative; touch-action: pan-y; }
-.event-spacer { touch-action: none; }
 
 .day-top {
   padding-top: 5pt;

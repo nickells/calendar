@@ -1,5 +1,7 @@
-import { dateKey, addDays, navigateDate, viewDates, validEvent, eventsForDate, eventLanes, eventColor, randomDarkColor, inferredTime } from './calendar.mjs';
+import { dateKey, addDays, navigateDate, viewDates, validEvent, eventsForDate, compareEvents, eventColor, randomDarkColor, inferredTime } from './calendar.mjs';
 import { loadEvents, saveEvent, deleteEvent, loadView, saveView } from './storage.mjs';
+
+import { packRow } from './layout.mjs';
 
 const $ = id => document.getElementById(id);
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('calendar-changes') : null;
@@ -74,7 +76,6 @@ function render(preserveSelection = false) {
     const [date, endDate] = [daySelection.start, daySelection.end].sort();
     displayEvents.push({ id: daySelection.previewId, title: 'New event', date, endDate, color: daySelection.color });
   }
-  const lanes = eventLanes(displayEvents, dateKey(first), dateKey(last), true);
   for (const [index, date] of dates.entries()) {
     const key = dateKey(date);
     const day = document.createElement('section');
@@ -146,25 +147,7 @@ function render(preserveSelection = false) {
       return button;
     }
     const items = eventsForDate(displayEvents, key);
-    const hasArrow = items.some(event => event.endDate > event.date);
-    if (hasArrow) {
-      let dayLaneCount = 0;
-      lanes.forEach((lane, laneIndex) => {
-        if (lane?.some(event => event.date <= key && (event.endDate ?? event.date) >= key)) dayLaneCount = laneIndex + 1;
-      });
-      for (let laneIndex = 0; laneIndex < dayLaneCount; laneIndex++) {
-        const event = lanes[laneIndex]?.find(event => event.date <= key && (event.endDate ?? event.date) >= key);
-        const slot = event ? eventButton(event, event.endDate > event.date) : document.createElement('div');
-        slot.dataset.lane = laneIndex;
-        if (!event) {
-          slot.className = 'event-spacer';
-          slot.setAttribute('aria-hidden', 'true');
-        }
-        list.append(slot);
-      }
-    } else {
-      for (const event of items) list.append(eventButton(event));
-    }
+    for (const event of items) list.append(eventButton(event, event.endDate > event.date));
     day.append(list);
     calendar.append(day);
   }
@@ -175,110 +158,98 @@ function scheduleEventLines() {
   cancelAnimationFrame(lineFrame);
   lineFrame = requestAnimationFrame(drawEventLines);
 }
-function layoutInlineEvents() {
+function layoutEvents() {
+  const rows = new Map();
+  // Restore natural sizes before measuring; previous positions never become inputs.
   for (const day of $('calendar').querySelectorAll('.day')) {
-    const top = day.querySelector('.day-top');
     const list = day.querySelector('.day-events');
-    const previous = top.querySelector('.event-inline');
-    if (previous) {
-      const placeholder = list.querySelector('.inline-placeholder');
-      if (placeholder) {
-        previous.dataset.lane = placeholder.dataset.lane;
-        placeholder.replaceWith(previous);
-      } else list.prepend(previous);
-      previous.classList.remove('event-inline');
-    }
+    const top = day.querySelector('.day-top');
+    const inline = top.querySelector('.event-inline');
+    if (inline) { inline.classList.remove('event-inline'); list.append(inline); }
     top.classList.remove('has-inline-event');
-    // Untimed single-day names can fill the header above untimed arrows.
-    // Explicit times must retain their chronological order.
-    const candidates = [...list.querySelectorAll(':scope > .event')];
-    const candidate = candidates.find((button, index) => !button.classList.contains('event-span') &&
-      (index === 0 || (inferredTime(button.title) === null && candidates.slice(0, index).every(prior => inferredTime(prior.title) === null))));
-    if (!candidate) continue;
-    const heading = top.querySelector('.day-heading');
-    const headingStyle = getComputedStyle(heading);
-    const dateWidth = heading.querySelector('.day-number').getBoundingClientRect().width + parseFloat(headingStyle.paddingLeft) + parseFloat(headingStyle.paddingRight);
-    const available = top.clientWidth - dateWidth - parseFloat(getComputedStyle(list).paddingLeft) - parseFloat(getComputedStyle(top).columnGap);
-    const measure = candidate.querySelector('.event-title').cloneNode(true);
-    Object.assign(measure.style, { position: 'fixed', visibility: 'hidden', whiteSpace: 'pre', width: 'max-content' });
-    candidate.append(measure);
-    const fits = measure.getBoundingClientRect().width <= available;
-    measure.remove();
-    if (!fits) continue;
-    if (candidate.dataset.lane !== undefined) {
-      const placeholder = document.createElement('div');
-      placeholder.className = 'event-spacer inline-placeholder';
-      placeholder.dataset.lane = candidate.dataset.lane;
-      placeholder.setAttribute('aria-hidden', 'true');
-      candidate.replaceWith(placeholder);
-      delete candidate.dataset.lane;
+    const buttons = [...list.querySelectorAll('.event')].sort((a, b) =>
+      compareEvents({ title: a.title, id: a.dataset.eventId }, { title: b.title, id: b.dataset.eventId }));
+    for (const button of buttons) {
+      button.style.height = '';
+      button.style.marginTop = '';
+      button.style.order = '';
+      list.append(button);
     }
-    candidate.style.order = '';
-    candidate.style.height = '';
-    candidate.style.marginTop = '';
-    candidate.classList.add('event-inline');
-    top.classList.add('has-inline-event');
-    top.prepend(candidate);
+    if (!rows.has(day.dataset.row)) rows.set(day.dataset.row, []);
+    rows.get(day.dataset.row).push({ day, list, top, buttons });
+  }
+  let previousTops = new Map();
+  for (const row of rows.values()) {
+    const groups = new Map();
+    const metrics = row.map(({ day, list, top, buttons }, column) => {
+      // Account for per-cell scrolling so scrolling doesn't change the packing.
+      const origin = day.getBoundingClientRect().top - day.scrollTop;
+      const heading = top.querySelector('.day-heading');
+      const headingStyle = getComputedStyle(heading);
+      const listStyle = getComputedStyle(list);
+      const dateWidth = heading.querySelector('.day-number').getBoundingClientRect().width +
+        parseFloat(headingStyle.paddingLeft) + parseFloat(headingStyle.paddingRight);
+      const available = top.clientWidth - dateWidth - parseFloat(listStyle.paddingLeft) - parseFloat(getComputedStyle(top).columnGap);
+      for (const button of buttons) {
+        const id = button.dataset.eventId;
+        if (!groups.has(id)) groups.set(id, { id, title: button.title, columns: [], buttons: [], height: 0, heights: {}, timed: inferredTime(button.title) !== null });
+        const item = groups.get(id);
+        item.columns.push(column);
+        item.buttons.push(button);
+        item.heights[column] = button.getBoundingClientRect().height;
+        item.height = Math.max(item.height, item.heights[column]);
+        if (!button.classList.contains('event-span')) {
+          const measure = button.querySelector('.event-title').cloneNode(true);
+          Object.assign(measure.style, { position: 'fixed', visibility: 'hidden', whiteSpace: 'pre', width: 'max-content' });
+          button.append(measure);
+          item.header = measure.getBoundingClientRect().width <= available;
+          measure.remove();
+          // Measure the actual header style, including its smaller touch target.
+          const clone = button.cloneNode(true);
+          clone.classList.add('event-inline');
+          Object.assign(clone.style, { position: 'absolute', visibility: 'hidden' });
+          top.append(clone);
+          item.headerHeight = clone.getBoundingClientRect().height;
+          clone.remove();
+        }
+      }
+      return {
+        bodyTop: list.getBoundingClientRect().top - origin,
+        bottom: day.clientHeight + day.clientTop - parseFloat(listStyle.paddingBottom),
+        headerTop: top.getBoundingClientRect().top - origin + parseFloat(getComputedStyle(top).paddingTop),
+        gap: parseFloat(listStyle.rowGap)
+      };
+    });
+    const items = [...groups.values()].sort(compareEvents);
+    const placements = packRow(items, metrics, { previousTops });
+    // Carry only spans reaching the week boundary; start fresh on every layout.
+    previousTops = new Map(placements.filter(p => items[p.index].columns.includes(row.length - 1) &&
+      items[p.index].buttons[0].classList.contains('event-span')).map(p => [p.id, p.top]));
+    for (const [column, { list, top }] of row.entries()) {
+      let cursor = metrics[column].bodyTop;
+      const local = placements.filter(p => items[p.index].columns.includes(column)).sort((a, b) => a.top - b.top);
+      for (const [order, placement] of local.entries()) {
+        const item = items[placement.index];
+        const button = item.buttons[item.columns.indexOf(column)];
+        if (placement.header) {
+          button.classList.add('event-inline');
+          top.classList.add('has-inline-event');
+          top.prepend(button);
+        } else {
+          button.style.order = order;
+          const height = placement.heights[column];
+          button.style.height = `${height}px`;
+          button.style.marginTop = `${Math.max(0, placement.top - cursor)}px`;
+          cursor = placement.top + height + metrics[column].gap;
+        }
+      }
+    }
   }
 }
 function drawEventLines() {
   const calendar = $('calendar');
   calendar.querySelector('.event-lines')?.remove();
-  layoutInlineEvents();
-  // Pack into free vertical intervals, including gaps above low shared arrows.
-  const slots = [...calendar.querySelectorAll('.event[data-lane]')];
-  slots.forEach(slot => { slot.style.height = ''; slot.style.marginTop = ''; slot.style.order = ''; });
-  const days = new Map();
-  const laneGroups = new Map();
-  for (const slot of slots) {
-    const day = slot.closest('.day');
-    const list = day.querySelector('.day-events');
-    if (!days.has(day)) days.set(day, {
-      top: list.getBoundingClientRect().top,
-      gap: parseFloat(getComputedStyle(list).rowGap),
-      placed: []
-    });
-    const key = `${day.dataset.row}:${slot.dataset.eventId}`;
-    if (!laneGroups.has(key)) laneGroups.set(key, []);
-    laneGroups.get(key).push(slot);
-  }
-  const orderedGroups = [...laneGroups.values()].sort((a, b) => Number(a[0].dataset.lane) - Number(b[0].dataset.lane));
-  for (const group of orderedGroups) {
-    const height = Math.max(...group.map(slot => slot.getBoundingClientRect().height));
-    const timed = inferredTime(group[0].title) !== null;
-    const occupiedDays = group.map(slot => days.get(slot.closest('.day')));
-    let top = Math.max(...occupiedDays.map(day => day.top));
-    // Preserve chronological ordering whenever either event has an explicit time.
-    for (const day of occupiedDays) {
-      for (const prior of day.placed) {
-        if (timed || prior.timed) top = Math.max(top, prior.top + prior.height + day.gap);
-      }
-    }
-    let collision;
-    do {
-      collision = false;
-      for (const day of occupiedDays) {
-        for (const prior of day.placed) {
-          if (top < prior.top + prior.height + day.gap && top + height + day.gap > prior.top) {
-            top = prior.top + prior.height + day.gap;
-            collision = true;
-          }
-        }
-      }
-    } while (collision);
-    for (const slot of group) {
-      days.get(slot.closest('.day')).placed.push({ slot, top, height, timed });
-    }
-  }
-  for (const day of days.values()) {
-    let cursor = day.top;
-    day.placed.sort((a, b) => a.top - b.top).forEach(({ slot, top, height }, index) => {
-      slot.style.order = index;
-      slot.style.marginTop = `${Math.max(0, top - cursor)}px`;
-      slot.style.height = `${height}px`;
-      cursor = top + height + day.gap;
-    });
-  }
+  layoutEvents();
   const bounds = calendar.getBoundingClientRect();
   const groups = new Map();
   for (const line of calendar.querySelectorAll('.event-line')) {
@@ -331,7 +302,6 @@ function openEvent(key = dateKey(new Date()), event = null, endKey = key, previe
   $('event-end-date').min = $('event-date').value;
   $('event-color').value = event ? eventColor(event) : previewColor || randomDarkColor();
   $('delete-event').hidden = !event;
-  $('delete-event').textContent = 'Delete event';
   $('form-error').textContent = '';
   draftEvent = event ? null : { id: previewId, title: 'New event', date: key, endDate: endKey, color: $('event-color').value };
   $('event-dialog').showModal();
@@ -413,7 +383,6 @@ $('event-form').addEventListener('submit', async event => {
   $('event-dialog').close(); render();
 });
 $('delete-event').addEventListener('click', async () => {
-  if ($('delete-event').textContent !== 'Confirm delete') { $('delete-event').textContent = 'Confirm delete'; return; }
   if (!await persist(() => deleteEvent(editingId))) return;
   $('event-dialog').close(); render();
 });

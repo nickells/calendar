@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, parseDate, addDays, viewDates, navigateDate, validEvent, eventsForDate, eventLanes, eventColor, inferredTime, randomDarkColor } from '../calendar.mjs';
+import { dateKey, parseDate, addDays, viewDates, navigateDate, validEvent, eventsForDate, eventLanes, eventColor, inferredTime, randomDarkColor, colorLuminance, MAX_EVENT_COLOR_LUMINANCE } from '../calendar.mjs';
 test('dates round-trip locally and reject nonexistent dates', () => {
   assert.equal(dateKey(parseDate('2028-02-29')), '2028-02-29');
   assert.equal(parseDate('2026-02-29'), null);
@@ -87,15 +87,29 @@ test('sort all daily events chronologically including spans', () => {
   assert.deepEqual(lanes.flatMap(lane => lane.filter(item => item.date === event.date)).map(item => item.title), expected);
 });
 
-test('new-event colors are valid dark hex colors', () => {
-  for (let i = 0; i < 30; i++) {
-    const color = randomDarkColor();
+test('new-event colors satisfy the luminance threshold across the RGB gamut', () => {
+  let seed = 4321;
+  const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0x100000000; };
+  const colors = new Set();
+  for (let i = 0; i < 1000; i++) {
+    const color = randomDarkColor(random);
+    colors.add(color);
     assert.match(color, /^#[0-9a-f]{6}$/);
-    const rgb = color.slice(1).match(/../g).map(hex => parseInt(hex, 16) / 255);
-    const linear = rgb.map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4);
-    const luminance = linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
-    assert.ok(1.05 / (luminance + .05) > 4.5);
+    assert.ok(colorLuminance(color) <= MAX_EVENT_COLOR_LUMINANCE);
   }
+  assert.ok(colors.size > 900, 'Generate colors beyond the former small palette');
+});
+
+test('luminance allows pure red and blue, but rejects bright green and yellow', () => {
+  for (const [color, expected] of [['#000000', 0], ['#ffffff', 1], ['#ff0000', .2126], ['#0000ff', .0722], ['#00ff00', .7152]]) {
+    assert.ok(Math.abs(colorLuminance(color) - expected) < 1e-10);
+  }
+  for (const color of ['#ff0000', '#0000ff']) {
+    assert.equal(randomDarkColor(() => parseInt(color.slice(1), 16) / 0x1000000), color);
+  }
+  const candidates = [0xffffff, 0xffff00, 0x00ff00, 0xff0000];
+  assert.equal(randomDarkColor(() => candidates.shift() / 0x1000000), '#ff0000');
+  assert.equal(randomDarkColor(() => 0xffffff / 0x1000000), '#0000ff', 'Bounded retries');
 });
 
 test('short untimed names lead while explicit times stay chronological', () => {

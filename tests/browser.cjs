@@ -132,7 +132,6 @@ const assert = require('node:assert/strict');
   await page.screenshot({ path: '/tmp/calendar-ipad.png', fullPage: true });
   await page.locator('.event').click();
   await page.getByRole('button', { name: 'Delete event', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   assert.equal(await page.locator('.event').count(), 0);
   await page.reload();
@@ -187,7 +186,6 @@ const assert = require('node:assert/strict');
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   await page.locator('.event').last().click();
   await page.getByRole('button', { name: 'Delete event', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   assert.equal(await page.locator('.event').count(), 0);
   // A wrapped span has one arrow per row, never one per day.
@@ -214,6 +212,20 @@ const assert = require('node:assert/strict');
   const lineHeights = await page.locator('.day[data-row="0"] .event-line').evaluateAll(lines => lines.map(line => line.getBoundingClientRect().top));
   assert.ok(Math.max(...lineHeights) - Math.min(...lineHeights) < 1);
   assert.equal((wrappedPath.match(/ L /g) || []).length, 6);
+  const wrappedGeometry = await page.locator('.event-span').evaluateAll(buttons => {
+    const start = buttons.find(button => button.querySelector('.event-title'));
+    const title = start.querySelector('.event-title');
+    const line = start.querySelector('.event-line');
+    return {
+      startHeight: start.getBoundingClientRect().height,
+      continuationHeight: buttons.find(button => !button.querySelector('.event-title')).getBoundingClientRect().height,
+      arrowCenter: line.getBoundingClientRect().top + .5,
+      firstLineCenter: title.getBoundingClientRect().top + parseFloat(getComputedStyle(title).lineHeight) / 2
+    };
+  });
+  assert.ok(wrappedGeometry.continuationHeight < wrappedGeometry.startHeight);
+  assert.ok(Math.abs(wrappedGeometry.arrowCenter - wrappedGeometry.firstLineCenter) < 1);
+
   // Days without arrows must not inherit blank event lanes from their neighbors.
   const emptyDay = page.locator('.day').first();
   assert.equal(await emptyDay.locator('.event-spacer').count(), 0);
@@ -226,12 +238,10 @@ const assert = require('node:assert/strict');
   assert.ok(gap < 3, `Unexpected space above single-day event: ${gap}`);
   await birthday.click();
   await page.getByRole('button', { name: 'Delete event', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   await page.screenshot({ path: '/tmp/calendar-wrapped-arrow.png', fullPage: true });
   await page.locator('.event').last().click();
   await page.getByRole('button', { name: 'Delete event', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   for (const [label, value] of [['Month', 'month'], ['30 day', 'rolling']]) {
     await page.getByRole('button', { name: label, exact: true }).click();
@@ -318,6 +328,15 @@ const assert = require('node:assert/strict');
   await page.getByRole('button', { name: 'Save event', exact: true }).click();
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   assert.deepEqual(await todayCell.locator('.event-title').allTextContents(), ['Holiday', 'birthday 8am', 'coffee 09:00', 'lunch 12pm']);
+  await page.waitForTimeout(100);
+  const timedPositions = await todayCell.locator('.event').evaluateAll(buttons =>
+    buttons.map(button => ({ title: button.title, top: button.getBoundingClientRect().top })));
+  const timedOrder = ['Holiday', 'birthday 8am', 'coffee 09:00', 'lunch 12pm'];
+  for (let i = 1; i < timedOrder.length; i++) {
+    assert.ok(timedPositions.find(p => p.title === timedOrder[i - 1]).top <
+      timedPositions.find(p => p.title === timedOrder[i]).top, 'Rendered time order');
+  }
+
   for (const label of ['Month', '30 day']) {
     await page.getByRole('button', { name: label, exact: true }).click();
     const today = page.getByRole('button', { name: 'Today', exact: true });
@@ -332,7 +351,7 @@ const assert = require('node:assert/strict');
     await page.locator('#next').click();
     assert.equal(await today.isEnabled(), false);
   }
-  // Short single-day names share the date row only when the actual text fits.
+  // Sparse days stay below the date; crowded days can use the date corner.
   await page.evaluate(async () => {
     const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
     const { dateKey } = await import('./calendar.mjs');
@@ -342,6 +361,16 @@ const assert = require('node:assert/strict');
   await page.setViewportSize({ width: 1180, height: 1000 });
   await page.reload();
   await page.waitForSelector('.is-today .event-title');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.event-inline').count(), 0);
+  await page.evaluate(async () => {
+    const { saveEvent } = await import('./storage.mjs');
+    const { dateKey } = await import('./calendar.mjs');
+    for (let i = 0; i < 3; i++) await saveEvent({
+      id: 'crowding-' + i, title: 'Long event description number ' + i, date: dateKey(new Date())
+    });
+  });
+  await page.reload();
   await page.waitForSelector('.event-inline');
   const inlineGap = await page.locator('.is-today').evaluate(day => {
     const title = day.querySelector('.event-title').getBoundingClientRect();
@@ -351,12 +380,13 @@ const assert = require('node:assert/strict');
   assert.ok(inlineGap >= 8, `Room left for the date: ${inlineGap}`);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => !document.querySelector('.event-inline'));
-  assert.equal(await page.locator('.is-today .day-events .event-title').textContent(), "Finley's birthday");
+  assert.equal(await page.locator('.is-today .day-events .event-title').first().textContent(), "Finley's birthday");
   await page.setViewportSize({ width: 1180, height: 1000 });
   await page.waitForSelector('.event-inline');
   await page.getByRole('button', { name: "Edit Finley's birthday", exact: true }).click();
   assert.equal(await page.locator('#event-title').inputValue(), "Finley's birthday");
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.setViewportSize({ width: 1180, height: 650 });
   // Moving a short name into the header must not leave a blank lane below it.
   await page.evaluate(async () => {
     const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
@@ -379,6 +409,7 @@ const assert = require('node:assert/strict');
     const ys = spanLines.filter(line => line.row === row).map(line => line.y);
     assert.ok(Math.max(...ys) - Math.min(...ys) < 1);
   }
+  await page.setViewportSize({ width: 1180, height: 450 });
   // A short untimed single-day event can sit above a shorter untimed span.
   await page.evaluate(async () => {
     const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
@@ -432,6 +463,69 @@ const assert = require('node:assert/strict');
       }
     }
   }
+  // IndexedDB insertion order cannot affect the geometry.
+  const geometry = async () => {
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    return page.locator('.event').evaluateAll(buttons => buttons.map(button => ({
+      id: button.dataset.eventId, date: button.closest('.day').dataset.date,
+      top: Math.round((button.getBoundingClientRect().top - button.closest('.day').getBoundingClientRect().top) * 100),
+      height: Math.round(button.getBoundingClientRect().height * 100),
+      header: button.classList.contains('event-inline')
+    })).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)));
+  };
+  const beforeOrderChange = await geometry();
+  await page.evaluate(async () => {
+    const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
+    const saved = await loadEvents();
+    for (const event of saved) await deleteEvent(event.id);
+    for (const event of saved.reverse()) await saveEvent(event);
+  });
+  await page.reload();
+  await page.waitForSelector('.event-lines path', { state: 'attached' });
+  assert.deepEqual(await geometry(), beforeOrderChange);
+  // Continuing arrows must not exchange vertical order at a week boundary.
+  await page.evaluate(async () => {
+    const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
+    for (const event of await loadEvents()) await deleteEvent(event.id);
+    const dates = [...document.querySelectorAll('.day')].map(day => day.dataset.date);
+    await saveEvent({ id: 'bowen', title: 'BOWEN YANG NYC', date: dates[4], endDate: dates[6] });
+    await saveEvent({ id: 'tt', title: 'TT', date: dates[5], endDate: dates[8] });
+    await saveEvent({ id: 'blue', title: 'BLUE TEST', date: dates[5], endDate: dates[9] });
+  });
+  await page.reload();
+  await page.waitForSelector('.event-lines path', { state: 'attached' });
+  for (const width of [800, 1180, 768]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.waitForTimeout(100);
+    const differences = await page.evaluate(() => [0, 1].map(row => {
+      const y = id => document.querySelector('.day[data-row="' + row + '"] .event[data-event-id="' + id + '"] .event-line').getBoundingClientRect().top;
+      return y('tt') - y('blue');
+    }));
+    assert.ok(differences[0] * differences[1] > 0, 'Continuing arrows keep their order after wrapping');
+  }
+  // Single-day and arrow labels share the same first-line vertical position.
+  const eventTextMetrics = await page.evaluate(() => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;top:0;left:0;width:150px;visibility:hidden';
+    document.body.append(host);
+    const result = ['event', 'event event-span'].map(className => {
+      const button = document.createElement('button');
+      button.className = className;
+      button.innerHTML = '<span class="event-title">NEW EVENT</span>' +
+        (className.includes('event-span') ? '<span class="event-line"></span>' : '');
+      host.append(button);
+      const range = document.createRange();
+      range.selectNodeContents(button.firstElementChild);
+      return {
+        height: button.getBoundingClientRect().height,
+        textTop: range.getBoundingClientRect().top - button.getBoundingClientRect().top,
+        textHeight: range.getBoundingClientRect().height
+      };
+    });
+    host.remove();
+    return result;
+  });
+  assert.deepEqual(eventTextMetrics[0], eventTextMetrics[1]);
   assert.deepEqual(errors, []);
   await require('./worker-update.cjs')(browser);
   await browser.close();
