@@ -1,14 +1,45 @@
-<html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Calendar">
+  <title>Calendar</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="stylesheet" href="./style.css">
-  <title></title>
-  <body>
-    <div id="container">
-      <h1 id="header"></h1>
-      <div id="cal-inner">
-        <div id="day-grid"></div>
-        <div id="cal-grid"></div>
+</head>
+<body>
+  <main id="container">
+    <h1 id="heading"></h1>
+    <nav class="toolbar" aria-label="Calendar controls">
+      <button id="month-view" aria-pressed="true">Month</button>
+      <button id="rolling-view" aria-pressed="false">30 day</button>
+      <div class="date-controls">
+        <button id="today">Today</button>
+        <button id="previous" aria-label="Previous month">←</button>
+        <button id="next" aria-label="Next month">→</button>
       </div>
-    </div>
-    <script src="./script.js"></script>
-  </body>
+    </nav>
+    <div id="day-grid" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thur</span><span>Fri</span><span>Sat</span></div>
+    <div id="calendar" class="calendar"></div>
+  </main>
+  <dialog id="event-dialog" aria-labelledby="dialog-title">
+    <form id="event-form">
+      <div class="dialog-heading"><h2 id="dialog-title">Add event</h2><button type="button" id="close-dialog" aria-label="Close">×</button></div>
+      <label>Event<input id="event-title" name="title" autofocus required maxlength="100" autocomplete="off"></label>
+      <label>Start date<input id="event-date" name="date" type="date" required></label>
+      <label>End date<input id="event-end-date" name="endDate" type="date" required></label>
+      <label>Color<input id="event-color" name="color" type="color" value="#222222"></label>
+      <p id="form-error" class="error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="delete-event" hidden>Delete event</button><button type="button" id="cancel-dialog">Cancel</button><button type="submit">Save event</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="./script.js"></script>
+</body>
 </html>
