@@ -6,7 +6,7 @@ A touch-friendly, installable calendar for iPad and desktop. No build step or se
 - **Month:** full calendar month in the original six-row grid, with previous/next month navigation.
 - **30 day:** 30 days starting at the selected date, padded with muted, selectable dates to fill complete weeks; navigation moves 30 days.
 - The selected view is saved in IndexedDB and restored on reopening, including offline.
-- Events sort by times in their names (for example, `4pm`, `4:30 p.m.`, or `16:30`). Times without AM/PM use the 24-hour clock. Untimed names come first; matching times sort alphabetically. Names remain unchanged.
+- Events sort by times in their names (for example, `4pm`, `4:30 p.m.`, or `16:30`). Times without AM/PM use the 24-hour clock. Untimed names come first, shortest first; matching times sort alphabetically. Names remain unchanged.
 - Saving or editing an event leaves the selected view and date range unchanged.
 - Events persist in IndexedDB on the current browser/device. There is no account or sync; clearing website data deletes events.
 - The service worker caches the application for offline use after the first successful online visit.
@@ -40,3 +40,5 @@ node tests/browser.cjs
 Set `PLAYWRIGHT_MODULE` to the installed Playwright module path if it is outside this project. The checks cover IndexedDB persistence, event editing/deletion, validation, responsive layouts, and offline reloads and edits.
 
 Online reloads fetch current application files; offline reloads use the cached shell. When shipping changed application files, increment the cache version in `sw.js`. New workers activate immediately. Local previews refresh once when replacing an older cached build; installed apps use the update on their next reload.
+
+Typography uses Archivo Narrow, bundled locally with its SIL Open Font License in `fonts/OFL.txt`. Both font weights are cached for offline use.

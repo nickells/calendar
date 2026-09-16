@@ -11,20 +11,23 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="preload" href="./fonts/archivo-narrow-regular.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <main id="container">
-    <h1 id="heading"></h1>
-    <nav class="toolbar" aria-label="Calendar controls">
-      <button id="month-view" aria-pressed="true">Month</button>
-      <button id="rolling-view" aria-pressed="false">30 day</button>
-      <div class="date-controls">
-        <button id="today">Today</button>
-        <button id="previous" aria-label="Previous month">←</button>
-        <button id="next" aria-label="Next month">→</button>
-      </div>
-    </nav>
+    <header class="calendar-header">
+      <h1 id="heading"></h1>
+      <nav class="toolbar" aria-label="Calendar controls">
+        <button id="month-view" aria-pressed="true">Month</button>
+        <button id="rolling-view" aria-pressed="false">30 day</button>
+        <div class="date-controls">
+          <button id="today">Today</button>
+          <button id="previous" aria-label="Previous month">←</button>
+          <button id="next" aria-label="Next month">→</button>
+        </div>
+      </nav>
+    </header>
     <div id="day-grid" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thur</span><span>Fri</span><span>Sat</span></div>
     <div id="calendar" class="calendar"></div>
   </main>

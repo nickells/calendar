@@ -26,9 +26,9 @@ test('events require only a name and valid date; legacy timed events remain vali
   assert.ok(validEvent({ ...event, allDay: false, start: '12:00', end: '13:00' }));
   assert.ok(validEvent({ ...event, allDay: true, start: '', end: '' }));
 });
-test('daily events sort by name regardless of legacy time fields', () => {
+test('untimed events sort shortest first regardless of legacy time fields', () => {
   const items = [event, { ...event, id: 'early', title: 'Walk', start: '08:00' }, { ...event, id: 'all-day', title: 'Birthday', allDay: true }, { ...event, id: 'other', date: '2026-09-17' }];
-  assert.deepEqual(eventsForDate(items, event.date).map(item => item.id), ['all-day', 'test', 'early']);
+  assert.deepEqual(eventsForDate(items, event.date).map(item => item.id), ['early', 'test', 'all-day']);
 });
 
 test('month view restores six full weeks including adjacent-month dates', () => {
@@ -96,4 +96,10 @@ test('new-event colors are valid dark hex colors', () => {
     const luminance = linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
     assert.ok(1.05 / (luminance + .05) > 4.5);
   }
+});
+
+test('short untimed names lead while explicit times stay chronological', () => {
+  const titles = ['Long untimed event', 'Lunch 12pm', 'BB', 'A', 'Birthday 4pm'];
+  const items = titles.map((title, index) => ({ ...event, id: String(index), title }));
+  assert.deepEqual(eventsForDate(items, event.date).map(item => item.title), ['A', 'BB', 'Long untimed event', 'Lunch 12pm', 'Birthday 4pm']);
 });

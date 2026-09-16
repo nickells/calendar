@@ -9,6 +9,8 @@ const assert = require('node:assert/strict');
   await page.goto('http://localhost:8000');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForFunction(() => navigator.serviceWorker.controller);
+  await page.evaluate(() => document.fonts.ready);
+  assert.ok(await page.evaluate(() => document.fonts.check('400 16px "Archivo Narrow"') && document.fonts.check('700 16px "Archivo Narrow"')));
   assert.equal(await page.locator('.day').count(), 42);
   assert.equal(await page.locator('[aria-pressed="true"]').textContent(), 'Month');
   assert.equal(await page.getByRole('button', { name: 'Week', exact: true }).count(), 0);
@@ -102,11 +104,16 @@ const assert = require('node:assert/strict');
   assert.notEqual(await page.locator('#heading').textContent(), monthHeading);
   await page.getByRole('button', { name: 'Previous month', exact: true }).click();
   assert.equal(await page.locator('#heading').textContent(), monthHeading);
-  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Today', exact: true }).isEnabled()) await page.getByRole('button', { name: 'Today', exact: true }).click();
   for (const viewport of [{ width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     for (const view of ['Month', '30 day']) {
       await page.getByRole('button', { name: view, exact: true }).click();
+      if (viewport.width >= 768) assert.ok(await page.evaluate(() => {
+        const heading = document.querySelector('#heading').getBoundingClientRect();
+        const controls = document.querySelector('.toolbar').getBoundingClientRect();
+        return controls.left >= heading.right && controls.top < heading.bottom;
+      }), 'Controls sit to the right of the heading');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `No overflow at ${viewport.width}, ${view}`);
     }
   }
@@ -135,7 +142,7 @@ const assert = require('node:assert/strict');
   });
   // Multi-day events edit the same record from any day, including offline.
   await page.getByRole('button', { name: 'Month', exact: true }).click();
-  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Today', exact: true }).isEnabled()) await page.getByRole('button', { name: 'Today', exact: true }).click();
   await page.locator('.is-today .day-heading').click();
   await page.locator('#event-title').fill('Trip');
   const start = await page.locator('#event-date').inputValue();
@@ -311,6 +318,120 @@ const assert = require('node:assert/strict');
   await page.getByRole('button', { name: 'Save event', exact: true }).click();
   await page.waitForSelector('#event-dialog', { state: 'hidden' });
   assert.deepEqual(await todayCell.locator('.event-title').allTextContents(), ['Holiday', 'birthday 8am', 'coffee 09:00', 'lunch 12pm']);
+  for (const label of ['Month', '30 day']) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    const today = page.getByRole('button', { name: 'Today', exact: true });
+    if (await today.isEnabled()) await today.click();
+    assert.equal(await today.isEnabled(), false);
+    await page.locator('#next').click();
+    assert.equal(await today.isEnabled(), true);
+    await today.click();
+    assert.equal(await today.isEnabled(), false);
+    await page.locator('#previous').click();
+    assert.equal(await today.isEnabled(), true);
+    await page.locator('#next').click();
+    assert.equal(await today.isEnabled(), false);
+  }
+  // Short single-day names share the date row only when the actual text fits.
+  await page.evaluate(async () => {
+    const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
+    const { dateKey } = await import('./calendar.mjs');
+    for (const event of await loadEvents()) await deleteEvent(event.id);
+    await saveEvent({ id: 'fit-test', title: "Finley's birthday", date: dateKey(new Date()) });
+  });
+  await page.setViewportSize({ width: 1180, height: 1000 });
+  await page.reload();
+  await page.waitForSelector('.is-today .event-title');
+  await page.waitForSelector('.event-inline');
+  const inlineGap = await page.locator('.is-today').evaluate(day => {
+    const title = day.querySelector('.event-title').getBoundingClientRect();
+    const number = day.querySelector('.day-number').getBoundingClientRect();
+    return number.left - title.right;
+  });
+  assert.ok(inlineGap >= 8, `Room left for the date: ${inlineGap}`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => !document.querySelector('.event-inline'));
+  assert.equal(await page.locator('.is-today .day-events .event-title').textContent(), "Finley's birthday");
+  await page.setViewportSize({ width: 1180, height: 1000 });
+  await page.waitForSelector('.event-inline');
+  await page.getByRole('button', { name: "Edit Finley's birthday", exact: true }).click();
+  assert.equal(await page.locator('#event-title').inputValue(), "Finley's birthday");
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // Moving a short name into the header must not leave a blank lane below it.
+  await page.evaluate(async () => {
+    const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
+    const { dateKey, addDays } = await import('./calendar.mjs');
+    for (const event of await loadEvents()) await deleteEvent(event.id);
+    const now = new Date(), date = dateKey(now);
+    await saveEvent({ id: 'short', title: 'Mest', date });
+    await saveEvent({ id: 'second', title: 'Test2', date });
+    await saveEvent({ id: 'span', title: 'Tex mex', date, endDate: dateKey(addDays(now, 2)) });
+  });
+  await page.reload();
+  await page.waitForSelector('.event-inline');
+  assert.equal(await page.locator('.is-today .event-inline').textContent(), 'Mest');
+  assert.deepEqual(await page.locator('.is-today .event-title').allTextContents(), ['Mest', 'Test2', 'Tex mex']);
+  const secondGap = await page.getByRole('button', { name: 'Edit Test2', exact: true }).evaluate(button => button.getBoundingClientRect().top - button.closest('.day').querySelector('.day-top').getBoundingClientRect().bottom);
+  assert.ok(secondGap < 3, `No blank lane after inline event: ${secondGap}`);
+  await page.waitForSelector('.event-lines path', { state: 'attached' });
+  const spanLines = await page.locator('.event-line').evaluateAll(lines => lines.map(line => ({ row: line.closest('.day').dataset.row, y: line.getBoundingClientRect().top })));
+  for (const row of new Set(spanLines.map(line => line.row))) {
+    const ys = spanLines.filter(line => line.row === row).map(line => line.y);
+    assert.ok(Math.max(...ys) - Math.min(...ys) < 1);
+  }
+  // A short untimed single-day event can sit above a shorter untimed span.
+  await page.evaluate(async () => {
+    const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
+    const { dateKey, addDays } = await import('./calendar.mjs');
+    for (const event of await loadEvents()) await deleteEvent(event.id);
+    const now = new Date(), date = dateKey(now);
+    await saveEvent({ id: 'beg', title: 'BEG', date, endDate: dateKey(addDays(now, 1)) });
+    await saveEvent({ id: 'test', title: 'TEST', date });
+    await saveEvent({ id: 'bowen', title: 'BOWEN YANG NYC', date: dateKey(addDays(now, 1)), endDate: dateKey(addDays(now, 3)) });
+  });
+  await page.reload();
+  await page.waitForSelector('.event-inline');
+  assert.equal(await page.locator('.is-today .event-inline').textContent(), 'TEST');
+  assert.equal(await page.locator('.is-today .day-events .event-title').textContent(), 'BEG');
+  await page.waitForSelector('.event-lines path', { state: 'attached' });
+  const begLines = await page.locator('.event[data-event-id="beg"] .event-line').evaluateAll(lines => lines.map(line => ({ row: line.closest('.day').dataset.row, y: line.getBoundingClientRect().top })));
+  if (begLines[0].row === begLines[1].row) assert.ok(Math.abs(begLines[0].y - begLines[1].y) < 1);
+  // A low span must leave the space above its continuation available.
+  await page.evaluate(async () => {
+    const { loadEvents, deleteEvent, saveEvent } = await import('./storage.mjs');
+    const { dateKey, addDays } = await import('./calendar.mjs');
+    for (const event of await loadEvents()) await deleteEvent(event.id);
+    const now = new Date(), date = dateKey(now);
+    await saveEvent({ id: 'low', title: 'BEG TO DIFFERY', date, endDate: dateKey(addDays(now, 1)) });
+    await saveEvent({ id: 'next', title: 'BOWEN YANG NYC', date: dateKey(addDays(now, 1)), endDate: dateKey(addDays(now, 3)) });
+    for (const title of ['TEST', 'THIRD', 'NEW EVENT']) await saveEvent({ id: title, title, date });
+  });
+  await page.reload();
+  await page.waitForSelector('.event-lines path', { state: 'attached' });
+  for (const width of [1180, 768, 1180]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.waitForTimeout(100);
+    const packed = await page.evaluate(() => {
+      const low = [...document.querySelectorAll('.event[data-event-id="low"]')];
+      const next = [...document.querySelectorAll('.event[data-event-id="next"]')];
+      const shared = low.find(slot => next.some(other => other.closest('.day') === slot.closest('.day')));
+      const upper = next.find(slot => slot.closest('.day') === shared.closest('.day'));
+      return {
+        lowTop: shared.getBoundingClientRect().top,
+        upperBottom: upper.getBoundingClientRect().bottom,
+        lines: [...low, ...next].map(slot => ({
+          id: slot.dataset.eventId, row: slot.closest('.day').dataset.row,
+          y: slot.querySelector('.event-line').getBoundingClientRect().top
+        }))
+      };
+    });
+    assert.ok(packed.upperBottom <= packed.lowTop, 'Next span fills space above low continuation');
+    for (const line of packed.lines) {
+      for (const other of packed.lines.filter(other => other.id === line.id && other.row === line.row)) {
+        assert.ok(Math.abs(line.y - other.y) < 1, 'Arrows stay level after packing and resizing');
+      }
+    }
+  }
   assert.deepEqual(errors, []);
   await require('./worker-update.cjs')(browser);
   await browser.close();

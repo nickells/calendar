@@ -1,6 +1,21 @@
+@font-face {
+  font-family: "Archivo Narrow";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/archivo-narrow-regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Archivo Narrow";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/archivo-narrow-bold.ttf") format("truetype");
+}
 :root {
+  --grid-gap: 5pt;
   --month-color: hsl(240deg, 100%, 50%);
-  font-family: "Berkeley Mono Variable", monospace;
+  font-family: "Archivo Narrow", "Arial Narrow", sans-serif;
   color: #000;
   background: #fff;
   text-transform: uppercase;
@@ -33,9 +48,22 @@ button:disabled { opacity: .5; cursor: wait; }
   width: 100%;
   height: 100vh;
   height: 100dvh;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding:
+    calc(env(safe-area-inset-top) + var(--grid-gap))
+    calc(env(safe-area-inset-right) + var(--grid-gap))
+    calc(env(safe-area-inset-bottom) + var(--grid-gap))
+    calc(env(safe-area-inset-left) + var(--grid-gap));
+}
+.calendar-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding-bottom: 5pt;
 }
 h1 {
+  flex: 1;
+  min-width: 0;
   font-size: 46pt;
   margin: 0;
   padding: 0;
@@ -44,17 +72,19 @@ h1 {
 .toolbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
   gap: 5pt;
-  padding: 5pt 0;
+  padding: 0;
   font-size: 10pt;
 }
-.date-controls { display: flex; gap: 5pt; margin-left: auto; }
+.date-controls { display: flex; gap: 5pt; }
 #previous, #next { min-width: 44px; }
 #day-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 5pt;
+  gap: var(--grid-gap);
   height: 20px;
   flex-shrink: 0;
   font-size: 10pt;
@@ -64,7 +94,7 @@ h1 {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-template-rows: repeat(var(--rows, 1), minmax(0, 1fr));
-  gap: 5pt;
+  gap: var(--grid-gap);
   flex: 1;
   min-height: 0;
 }
@@ -90,6 +120,7 @@ h1 {
   width: 100%;
   flex-shrink: 0;
   font-size: 18pt;
+  line-height: 1;
   font-weight: normal;
   padding: 2pt 5pt 0;
   border: 0;
@@ -141,7 +172,7 @@ h1 {
   stroke: #222;
   stroke-width: 1;
 }
-.event-spacer { height: 28px; flex-shrink: 0; }
+.event-spacer { display: none; }
 dialog {
   width: min(480px, calc(100% - 20px));
   max-height: 90vh;
@@ -189,10 +220,11 @@ input {
   font-size: 10pt;
 }
 @media (max-width: 600px) {
-  h1 { font-size: 28pt; }
+  .calendar-header { flex-wrap: wrap; gap: 5pt; }
+  h1 { font-size: 28pt; flex-basis: 100%; }
   .toolbar { gap: 4px; }
   .toolbar button { padding: 5pt; font-size: 9pt; }
-  #day-grid, .calendar { gap: 3px; }
+  :root { --grid-gap: 3px; }
   #day-grid { font-size: 8pt; }
   .day-heading { font-size: 16pt; padding-right: 3px; }
   .day-events { padding: 0 2px 2px; gap: 2px; }
@@ -212,3 +244,30 @@ input[type="color"] {
 .day-heading { position: relative; touch-action: none; }
 .day-events { position: relative; touch-action: pan-y; }
 .event-spacer { touch-action: none; }
+
+.day-top {
+  padding-top: 5pt;
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+  gap: var(--grid-gap);
+  flex-shrink: 0;
+}
+.day-top.has-inline-event .day-heading { width: auto; }
+.day-top .event-inline {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin-left: 5pt;
+  white-space: nowrap;
+  padding: 2pt 0;
+}
+@media (max-width: 600px) {
+  .day-top .event-inline { margin-left: 2px; }
+}
+
+.day-heading { cursor: pointer; }
+.day-heading:focus-visible { outline: 2px solid #000; outline-offset: -2px; }

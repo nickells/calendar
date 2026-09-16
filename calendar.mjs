@@ -49,7 +49,9 @@ export function inferredTime(title) {
   return null;
 }
 export function compareEvents(a, b) {
-  return (inferredTime(a.title) ?? -1) - (inferredTime(b.title) ?? -1) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+  const aTime = inferredTime(a.title), bTime = inferredTime(b.title);
+  const shorterUntimed = aTime === null && bTime === null ? [...a.title.trim()].length - [...b.title.trim()].length : 0;
+  return (aTime ?? -1) - (bTime ?? -1) || shorterUntimed || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 }
 export function eventsForDate(events, key) {
   return events.filter(event => event.date <= key && (event.endDate ?? event.date) >= key).sort(compareEvents);

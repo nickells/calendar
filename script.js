@@ -1,4 +1,4 @@
-import { dateKey, addDays, navigateDate, viewDates, validEvent, eventsForDate, eventLanes, eventColor, randomDarkColor } from './calendar.mjs';
+import { dateKey, addDays, navigateDate, viewDates, validEvent, eventsForDate, eventLanes, eventColor, randomDarkColor, inferredTime } from './calendar.mjs';
 import { loadEvents, saveEvent, deleteEvent, loadView, saveView } from './storage.mjs';
 
 const $ = id => document.getElementById(id);
@@ -50,6 +50,9 @@ function render(preserveSelection = false) {
   if (!preserveSelection) cancelDaySelection(false);
   const dates = viewDates(anchor, view);
   const first = dates[0], last = dates.at(-1), today = dateKey(new Date());
+  $('today').disabled = view === 'month'
+    ? dateKey(anchor).slice(0, 7) === today.slice(0, 7)
+    : dateKey(anchor) === today;
   const rangeStart = view === 'rolling' ? anchor : first;
   const rangeEnd = view === 'rolling' ? addDays(anchor, 29) : last;
   $('heading').textContent = view === 'month' ? format(anchor, { month: 'long', year: 'numeric' }) : rangeStart.getMonth() === rangeEnd.getMonth() ? format(rangeStart, { month: 'long', year: 'numeric' }) : `${format(rangeStart, { month: 'short', ...(rangeStart.getFullYear() !== rangeEnd.getFullYear() ? { year: 'numeric' } : {}) })} — ${format(rangeEnd, { month: 'short', year: 'numeric' })}`;
@@ -86,7 +89,9 @@ function render(preserveSelection = false) {
     surface.className = 'day-selection-surface';
     surface.setAttribute('aria-hidden', 'true');
     day.append(surface);
-    const heading = document.createElement('button');
+    const heading = document.createElement('div');
+    heading.tabIndex = 0;
+    heading.setAttribute('role', 'button');
     heading.className = 'day-heading';
     heading.setAttribute('aria-label', `Add event on ${format(date, { dateStyle: 'full' })}`);
     const number = document.createElement('span');
@@ -97,7 +102,16 @@ function render(preserveSelection = false) {
       // Keyboard and assistive-technology activation still works without a pointer.
       if (event.detail === 0) openEvent(key);
     });
-    day.append(heading);
+    heading.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openEvent(key);
+      }
+    });
+    const top = document.createElement('div');
+    top.className = 'day-top';
+    top.append(heading);
+    day.append(top);
     const list = document.createElement('div');
     list.className = 'day-events';
     function eventButton(event, multi = false) {
@@ -161,19 +175,110 @@ function scheduleEventLines() {
   cancelAnimationFrame(lineFrame);
   lineFrame = requestAnimationFrame(drawEventLines);
 }
+function layoutInlineEvents() {
+  for (const day of $('calendar').querySelectorAll('.day')) {
+    const top = day.querySelector('.day-top');
+    const list = day.querySelector('.day-events');
+    const previous = top.querySelector('.event-inline');
+    if (previous) {
+      const placeholder = list.querySelector('.inline-placeholder');
+      if (placeholder) {
+        previous.dataset.lane = placeholder.dataset.lane;
+        placeholder.replaceWith(previous);
+      } else list.prepend(previous);
+      previous.classList.remove('event-inline');
+    }
+    top.classList.remove('has-inline-event');
+    // Untimed single-day names can fill the header above untimed arrows.
+    // Explicit times must retain their chronological order.
+    const candidates = [...list.querySelectorAll(':scope > .event')];
+    const candidate = candidates.find((button, index) => !button.classList.contains('event-span') &&
+      (index === 0 || (inferredTime(button.title) === null && candidates.slice(0, index).every(prior => inferredTime(prior.title) === null))));
+    if (!candidate) continue;
+    const heading = top.querySelector('.day-heading');
+    const headingStyle = getComputedStyle(heading);
+    const dateWidth = heading.querySelector('.day-number').getBoundingClientRect().width + parseFloat(headingStyle.paddingLeft) + parseFloat(headingStyle.paddingRight);
+    const available = top.clientWidth - dateWidth - parseFloat(getComputedStyle(list).paddingLeft) - parseFloat(getComputedStyle(top).columnGap);
+    const measure = candidate.querySelector('.event-title').cloneNode(true);
+    Object.assign(measure.style, { position: 'fixed', visibility: 'hidden', whiteSpace: 'pre', width: 'max-content' });
+    candidate.append(measure);
+    const fits = measure.getBoundingClientRect().width <= available;
+    measure.remove();
+    if (!fits) continue;
+    if (candidate.dataset.lane !== undefined) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'event-spacer inline-placeholder';
+      placeholder.dataset.lane = candidate.dataset.lane;
+      placeholder.setAttribute('aria-hidden', 'true');
+      candidate.replaceWith(placeholder);
+      delete candidate.dataset.lane;
+    }
+    candidate.style.order = '';
+    candidate.style.height = '';
+    candidate.style.marginTop = '';
+    candidate.classList.add('event-inline');
+    top.classList.add('has-inline-event');
+    top.prepend(candidate);
+  }
+}
 function drawEventLines() {
   const calendar = $('calendar');
   calendar.querySelector('.event-lines')?.remove();
-  // A wrapped name determines the height of its lane across this calendar row.
-  const slots = [...calendar.querySelectorAll('[data-lane]')];
-  slots.forEach(slot => { slot.style.height = ''; });
-  const heights = new Map();
-  const slotKey = slot => `${slot.closest('.day').dataset.row}:${slot.dataset.lane}`;
-  slots.forEach(slot => {
-    const key = slotKey(slot);
-    heights.set(key, Math.max(heights.get(key) || 0, slot.getBoundingClientRect().height));
-  });
-  slots.forEach(slot => { slot.style.height = `${heights.get(slotKey(slot))}px`; });
+  layoutInlineEvents();
+  // Pack into free vertical intervals, including gaps above low shared arrows.
+  const slots = [...calendar.querySelectorAll('.event[data-lane]')];
+  slots.forEach(slot => { slot.style.height = ''; slot.style.marginTop = ''; slot.style.order = ''; });
+  const days = new Map();
+  const laneGroups = new Map();
+  for (const slot of slots) {
+    const day = slot.closest('.day');
+    const list = day.querySelector('.day-events');
+    if (!days.has(day)) days.set(day, {
+      top: list.getBoundingClientRect().top,
+      gap: parseFloat(getComputedStyle(list).rowGap),
+      placed: []
+    });
+    const key = `${day.dataset.row}:${slot.dataset.eventId}`;
+    if (!laneGroups.has(key)) laneGroups.set(key, []);
+    laneGroups.get(key).push(slot);
+  }
+  const orderedGroups = [...laneGroups.values()].sort((a, b) => Number(a[0].dataset.lane) - Number(b[0].dataset.lane));
+  for (const group of orderedGroups) {
+    const height = Math.max(...group.map(slot => slot.getBoundingClientRect().height));
+    const timed = inferredTime(group[0].title) !== null;
+    const occupiedDays = group.map(slot => days.get(slot.closest('.day')));
+    let top = Math.max(...occupiedDays.map(day => day.top));
+    // Preserve chronological ordering whenever either event has an explicit time.
+    for (const day of occupiedDays) {
+      for (const prior of day.placed) {
+        if (timed || prior.timed) top = Math.max(top, prior.top + prior.height + day.gap);
+      }
+    }
+    let collision;
+    do {
+      collision = false;
+      for (const day of occupiedDays) {
+        for (const prior of day.placed) {
+          if (top < prior.top + prior.height + day.gap && top + height + day.gap > prior.top) {
+            top = prior.top + prior.height + day.gap;
+            collision = true;
+          }
+        }
+      }
+    } while (collision);
+    for (const slot of group) {
+      days.get(slot.closest('.day')).placed.push({ slot, top, height, timed });
+    }
+  }
+  for (const day of days.values()) {
+    let cursor = day.top;
+    day.placed.sort((a, b) => a.top - b.top).forEach(({ slot, top, height }, index) => {
+      slot.style.order = index;
+      slot.style.marginTop = `${Math.max(0, top - cursor)}px`;
+      slot.style.height = `${height}px`;
+      cursor = top + height + day.gap;
+    });
+  }
   const bounds = calendar.getBoundingClientRect();
   const groups = new Map();
   for (const line of calendar.querySelectorAll('.event-line')) {
@@ -213,6 +318,7 @@ function drawEventLines() {
   calendar.append(svg);
 }
 new ResizeObserver(scheduleEventLines).observe($('calendar'));
+document.fonts.ready.then(scheduleEventLines);
 $('calendar').addEventListener('scroll', scheduleEventLines, true);
 function openEvent(key = dateKey(new Date()), event = null, endKey = key, previewId = crypto.randomUUID(), previewColor = null) {
   if (!storageReady) { notify('Event storage is unavailable. Reload to try again.'); return; }
